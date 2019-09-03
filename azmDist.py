@@ -29,6 +29,7 @@ from qgis.PyQt.QtWidgets import QAction, QFileDialog
 # Initialize Qt resources from file resources.py
 from .resources import *
 # Import the code for the dialog
+from .convergence.convergencecalculator import Convergence
 from .azmDist_dialog import azmDistDialog
 from .azmDistSave_dialog import azmDistSaveDialog
 import os.path
@@ -69,8 +70,6 @@ class azmDist:
 		# Must be set in initGui() to survive plugin reloads
 		self.first_start = None
 
-
-
 	# noinspection PyMethodMayBeStatic
 	def tr(self, message):
 		"""Get the translation for a string using Qt translation API.
@@ -85,7 +84,6 @@ class azmDist:
 		"""
 		# noinspection PyTypeChecker,PyArgumentList,PyCallByClass
 		return QCoreApplication.translate('azmDist', message)
-
 
 	def add_action(
 			self,
@@ -174,7 +172,6 @@ class azmDist:
 		# will be set False in run()
 		self.first_start = True
 
-
 	def unload(self):
 		"""Removes the plugin menu item and icon from QGIS GUI."""
 		for action in self.actions:
@@ -182,17 +179,6 @@ class azmDist:
 				self.tr(u'&Azimuth and Distance'),
 				action)
 			self.iface.removeToolBarIcon(action)
-
-	def dd2dms(self, azm):
-		is_positive = azm >= 0
-		azm = abs(azm)
-		minutes, seconds = divmod(azm * 3600, 60)
-		degrees, minutes = divmod(minutes, 60)
-		degrees = str(int(degrees)) if is_positive else '-' + str(int(degrees))
-		minutes = int(minutes)
-
-		return degrees + u"\u00b0" + str(minutes).zfill(2) + "'" + "%0.2f" % (seconds) + "''"
-
 
 	def run(self):
 		"""Run method that performs all the real work"""
@@ -204,10 +190,8 @@ class azmDist:
 			self.dlg = azmDistDialog()
 			self.dlg2 = azmDistSaveDialog()
 
-
 		root = QgsProject.instance().layerTreeRoot()
 		layers_tree = root.findLayers()
-
 		layer_list = []
 
 		for layer_tree in layers_tree:
@@ -217,7 +201,6 @@ class azmDist:
 		self.dlg.lyrcomboBox.clear()
 		# Add all items in list to comboBox
 		self.dlg.lyrcomboBox.addItems(layer_list)
-		#
 
 		# show the dialog
 		self.dlg.show()
@@ -227,39 +210,35 @@ class azmDist:
 		if result:
 			# Do something useful here - delete the line containing pass and
 			# substitute with your code.
+			pLayer = QgsProject.instance().mapLayersByName(self.dlg.lyrcomboBox.currentText())[0]
+			pList = []
+			for feature in pLayer.getFeatures():
 
-			self.dlg2.lineEdit.clear()
-			self.dlg2.pushButton.clicked.connect(self.select_output_file)
-			self.dlg2.lineEdit.setText(self.dlg.lyrcomboBox.currentText() + '_AZM.shp')
-			# show the dialog
-			self.dlg2.show()
-			# Run the dialog event loop
-			result = self.dlg2.exec_()
-			# See if OK was pressed
+				if feature.geometry() is not None:
+					pList.append(feature.geometry().asPoint())
+
+			for i in range(0, len(pList) - 1):
+				frwrd = QgsPointXY(pList[i])  # start point
+				rvrs = QgsPointXY(pList[i + 1])  # second point
+				az = frwrd.azimuth(rvrs)
+				distance = (frwrd.distance(rvrs))
+				c = Convergence.getSemiMajorAndSemiMinorAxis(self, pLayer)
+				a = Convergence.getGeographicCoordinates(self, pLayer, rvrs.x(), rvrs.y())
+				conv = Convergence.calculateConvergence(self, a.x(), a.y(), c[0], c[1])
+				if az < 0:
+					az += 360
+				azm = az + conv
+				print('Azimute Magnético: ', Convergence.dd2dms(self, azm), 'Distância: ', round(distance, 2), 'metros')
+
 			if result:
-				pLayer = QgsProject.instance().mapLayersByName(self.dlg.lyrcomboBox.currentText())[0]
-				pList = []
-				for feature in pLayer.getFeatures():
+				self.dlg2.lineEdit.clear()
+				self.dlg2.pushButton.clicked.connect(select_output_file)
+				self.dlg2.lineEdit.setText(self.dlg.lyrcomboBox.currentText() + '_AZM.shp')
+				# show the dialog
+				self.dlg2.show()
+				# Run the dialog event loop
+				result = self.dlg2.exec_()
+				# See if OK was pressed
 
-					if feature.geometry() is not None:
-						pList.append(feature.geometry().asPoint())
-
-				for i in range(0, len(pList) - 1):
-					#f = QgsFeature().setGeometry(QgsGeometry().fromPointXY(QgsPointXY(pList[i])))
-
-					frwrd = QgsPointXY(pList[i])  # start point
-					rvrs = QgsPointXY(pList[i + 1])  # second point
-					az = frwrd.azimuth(rvrs)
-					distance = (frwrd.distance(rvrs))
-					conv = -0.623791267410479
-					if az < 0:
-						az += 360
-					azm = az + conv
-					print('Azimute Magnético: ', self.dd2dms(azm), 'Distância: ', round(distance, 2), 'metros')
-					#print(f["Codigo"])
-
-					# print(frwrd.attribute("Codigo"))
-
-	def select_output_file(self):
-		filename = QFileDialog.getSaveFileName(self.dlg, "Select output file ", "", '*.shp')
-		self.dlg.lineEdit.setText(self.dlg.lyrcomboBox.currentText() + '_AZM')
+				select_output_file = QFileDialog.getSaveFileName(self.dlg, "Select output file ", "", '*.shp')
+			#	self.dlg.lineEdit.setText(self.dlg.lyrcomboBox.currentText() + '_AZM')
