@@ -29,7 +29,7 @@ from qgis.PyQt.QtWidgets import QAction, QFileDialog
 import math
 
 
-class Convergence:
+class Calculus:
 
 	def __init__(self, iface):
 		self.iface = iface
@@ -69,7 +69,7 @@ class Convergence:
 		return a, b
 
 	def calculateConvergence(self, longitude, latitude, a, b):
-		"""Calculates the meridian convergence
+		"""Calculates the meridian magic
 		"""
 		centralMeridian = int(abs(longitude) / 6) * 6 + 3
 		if longitude < 0:
@@ -92,3 +92,29 @@ class Convergence:
 		c = cSeconds / 3600
 
 		return c
+
+	def theMaker(self, aDict, alayer):
+		feats = []
+		for i in range(0, len(aDict) - 1):
+			frwrd = QgsPointXY(aDict[i][1])  # start point
+			rvrs = QgsPointXY(aDict[i + 1][1])  # second point
+			az = frwrd.azimuth(rvrs)
+			distance = math.sqrt(frwrd.sqrDist(rvrs))
+			c = Calculus.getSemiMajorAndSemiMinorAxis(self, alayer)
+			a = Calculus.getGeographicCoordinates(self, alayer, rvrs.x(), rvrs.y())
+			conv = Calculus.calculateConvergence(self, a.x(), a.y(), c[0], c[1])
+			if az < 0:
+				az += 360
+			azm = az + conv
+			longitude = Calculus.dd2dms(self, Calculus.getGeographicCoordinates(self, alayer,
+				aDict[i][1].x(), aDict[i][1].y()).x())
+			latitude = Calculus.dd2dms(self, Calculus.getGeographicCoordinates(self, alayer,
+				aDict[i][1].x(), aDict[i][1].y()).y())
+			fet = QgsFeature()
+			geom = QgsGeometry().fromPointXY(aDict[0][1])
+			fet.setGeometry(geom)
+			feats.append(fet)
+			fet.setAttributes([list(aDict.keys())[i], aDict[i][0], aDict[i][1].x(), aDict[i][1].y(),
+				longitude, latitude, aDict[i + 1][0], Calculus.dd2dms(self, azm), distance])
+
+		return feats
